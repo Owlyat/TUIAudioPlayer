@@ -31,19 +31,19 @@ pub fn handle_event(
                 (key_event.code == KeyCode::Up
                     && key_event.kind == KeyEventKind::Press
                     && key_event.modifiers == KeyModifiers::empty())
-                .then(|| audio_player.faster_playback());
+                .then(|| audio_player.higher_volume());
                 (key_event.code == KeyCode::Down
                     && key_event.kind == KeyEventKind::Press
                     && key_event.modifiers == KeyModifiers::empty())
-                .then(|| audio_player.slower_playback());
+                .then(|| audio_player.lower_volume());
                 (key_event.code == KeyCode::Up
                     && key_event.kind == KeyEventKind::Press
                     && key_event.modifiers == KeyModifiers::SHIFT)
-                    .then(|| audio_player.higher_volume());
+                    .then(|| audio_player.faster_playback());
                 (key_event.code == KeyCode::Down
                     && key_event.kind == KeyEventKind::Press
                     && key_event.modifiers == KeyModifiers::SHIFT)
-                    .then(|| audio_player.lower_volume());
+                    .then(|| audio_player.slower_playback());
             }
             ratatui::crossterm::event::Event::Mouse(mouse_event) => {}
             ratatui::crossterm::event::Event::Paste(_) => {}

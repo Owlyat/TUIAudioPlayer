@@ -4,6 +4,7 @@ use crate::audio::{AudioPlayer, AudioSource};
 use crate::cli::Cli;
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
+use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
 use utils::verify_path_extension;
@@ -12,7 +13,7 @@ use utils::verify_path_extension;
 pub struct App {
     args: Option<Cli>,
     audio: Option<AudioSource>,
-    state: Option<AppState>,
+    state: Option<AppStatePlay>,
 }
 
 impl App {
@@ -25,7 +26,7 @@ impl App {
                 high_pass: _,
             } => {
                 app.add_audio(path, cli.get_debug());
-                app.state = Some(AppState::default());
+                app.state = Some(AppStatePlay::default());
             }
             crate::cli::Command::Player {} => todo!("Add the player"),
         }
@@ -36,7 +37,7 @@ impl App {
         let cli = self.args.expect("[x] Could not get CLI arguments");
         match cli.clone().get_command() {
             crate::cli::Command::Play {
-                path: _,
+                path,
                 low_pass,
                 high_pass,
             } => {
@@ -46,6 +47,7 @@ impl App {
                             self.state
                                 .expect("[x] Could not get app state")
                                 .set_title(audio.get_title())
+                                .set_total_duration(utils::get_total_duration(&path))
                                 .set_debug(cli.get_debug())
                                 .run(&mut player);
                         }
@@ -65,14 +67,15 @@ impl App {
 }
 
 #[derive(Debug, Default, Clone)]
-struct AppState {
+struct AppStatePlay {
     running: bool,
     title: String,
     current_duration: Duration,
+    total_duration: Duration,
     debug: bool,
 }
 
-impl Widget for AppState {
+impl Widget for AppStatePlay {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let inner_area = area.inner(Margin {
             horizontal: 1,
@@ -86,15 +89,18 @@ impl Widget for AppState {
 
         Block::bordered()
             .title_top(format!(
-                "{} - {}",
+                "{} - {:02}:{:02}/{:02}:{:02}",
                 self.title,
-                self.current_duration.as_secs().to_string()
+                (self.current_duration.as_secs() - (self.current_duration.as_secs() % 60)) / 60,
+                self.current_duration.as_secs() % 60,
+                (self.total_duration.as_secs() - (self.total_duration.as_secs() % 60)) / 60,
+                self.total_duration.as_secs() % 60,
             ))
             .render(inner_area, buf);
     }
 }
 
-impl AppState {
+impl AppStatePlay {
     pub fn run(&mut self, audio_player: &mut AudioPlayer) {
         self.debug.then(|| println!("[?] Entering the main loop"));
         self.running = true;
@@ -135,5 +141,9 @@ impl AppState {
     }
     fn stop(&mut self) {
         self.running = false
+    }
+    pub fn set_total_duration(&mut self, d: Duration) -> &mut Self {
+        self.total_duration = d;
+        self
     }
 }
