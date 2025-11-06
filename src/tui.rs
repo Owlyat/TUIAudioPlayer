@@ -19,7 +19,11 @@ impl App {
     pub fn from(cli: Cli) -> Self {
         let mut app = Self::default();
         match cli.get_command() {
-            crate::cli::Command::Play { path } => {
+            crate::cli::Command::Play {
+                path,
+                low_pass: _,
+                high_pass: _,
+            } => {
                 app.add_audio(path, cli.get_debug());
                 app.state = Some(AppState::default());
             }
@@ -31,9 +35,13 @@ impl App {
     pub fn run(self) {
         let cli = self.args.expect("[x] Could not get CLI arguments");
         match cli.clone().get_command() {
-            crate::cli::Command::Play { path: _ } => {
+            crate::cli::Command::Play {
+                path: _,
+                low_pass,
+                high_pass,
+            } => {
                 if let Some(mut audio) = self.audio {
-                    match audio.play() {
+                    match audio.play(low_pass, high_pass) {
                         Ok(mut player) => {
                             self.state
                                 .expect("[x] Could not get app state")
@@ -67,8 +75,8 @@ struct AppState {
 impl Widget for AppState {
     fn render(self, area: Rect, buf: &mut Buffer) {
         let inner_area = area.inner(Margin {
-            horizontal: 10,
-            vertical: 5,
+            horizontal: 1,
+            vertical: 1,
         });
         let outer_area = area;
 

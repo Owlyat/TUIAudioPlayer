@@ -25,6 +25,12 @@ impl Cli {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum Command {
-    Play { path: std::path::PathBuf },
+    Play {
+        path: std::path::PathBuf,
+        #[clap(short = 'L', long = "lowpass")]
+        low_pass: Option<u32>,
+        #[clap(short = 'H', long = "highpass")]
+        high_pass: Option<u32>,
+    },
     Player {},
 }

@@ -1,5 +1,7 @@
 use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
+use rodio::Source;
+
 pub struct AudioSource {
     title: String,
     file: File,
@@ -20,13 +22,32 @@ impl AudioSource {
             player: None,
         }
     }
-    pub fn play(&mut self) -> Result<AudioPlayer, rodio::PlayError> {
+    pub fn play(
+        &mut self,
+        low_pass: Option<u32>,
+        high_pass: Option<u32>,
+    ) -> Result<AudioPlayer, rodio::PlayError> {
         let stream_handle =
             rodio::OutputStreamBuilder::open_default_stream().expect("Could not use audio device");
-        let sink = rodio::play(
-            stream_handle.mixer(),
-            BufReader::new(self.file.try_clone().expect("Could not clone file")),
-        )?;
+        let sink = rodio::Sink::connect_new(stream_handle.mixer());
+        let decoder = rodio::Decoder::new(BufReader::new(
+            self.file.try_clone().expect("[x] Could not clone file"),
+        ))?;
+        if let Some(low_pass) = low_pass {
+            let src = decoder.low_pass(low_pass);
+            if high_pass.is_some() {
+                sink.append(src.high_pass(high_pass.unwrap()));
+                return Ok(AudioPlayer::from(stream_handle, sink));
+            }
+            sink.append(src);
+        } else {
+            if high_pass.is_some() {
+                sink.append(decoder.high_pass(high_pass.unwrap()));
+                return Ok(AudioPlayer::from(stream_handle, sink));
+            }
+
+            sink.append(decoder);
+        }
         Ok(AudioPlayer::from(stream_handle, sink))
     }
     pub fn get_title(&self) -> &str {
@@ -57,5 +78,29 @@ impl AudioPlayer {
     }
     pub fn play(&mut self) {
         self.sink.play();
+    }
+    pub fn fast_forward(&mut self) {
+        let _ = self
+            .sink
+            .try_seek(self.sink.get_pos() + Duration::from_secs(5));
+    }
+    pub fn rewind(&mut self) {
+        let _ = self.sink.try_seek(Duration::from_secs(0));
+    }
+    pub fn faster_playback(&mut self) {
+        self.sink
+            .set_speed((self.sink.speed() + 0.1).clamp(0.1, 2.0));
+    }
+    pub fn slower_playback(&mut self) {
+        self.sink
+            .set_speed((self.sink.speed() - 0.1).clamp(0.1, 2.0));
+    }
+    pub fn higher_volume(&mut self) {
+        self.sink
+            .set_volume((self.sink.volume() + 0.1).clamp(0.0, 2.0));
+    }
+    pub fn lower_volume(&mut self) {
+        self.sink
+            .set_volume((self.sink.volume() - 0.1).clamp(0.0, 2.0));
     }
 }
