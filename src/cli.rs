@@ -1,0 +1,30 @@
+use clap::Subcommand;
+
+#[derive(Debug, Clone, clap::Parser)]
+#[command(
+    author = "Owlyat",
+    version = "0.1",
+    about = "A Terminal User Interface for playing audio"
+)]
+#[command(propagate_version = true)]
+pub struct Cli {
+    #[command(subcommand)]
+    command: Command,
+    #[clap(short = 'd')]
+    debug: bool,
+}
+
+impl Cli {
+    pub fn get_command(&self) -> Command {
+        self.command.clone()
+    }
+    pub fn get_debug(&self) -> bool {
+        self.debug
+    }
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum Command {
+    Play { path: std::path::PathBuf },
+    Player {},
+}
