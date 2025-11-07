@@ -32,5 +32,18 @@ pub enum Command {
         #[clap(short = 'H', long = "highpass")]
         high_pass: Option<u32>,
     },
-    Player {},
+    Player {
+        cwd: std::path::PathBuf,
+    },
+    TagWritter {
+        path: std::path::PathBuf,
+        #[clap(short = 't', long = "Title")]
+        title: Option<String>,
+        #[clap(short = 'A', long = "Artist")]
+        artist: Option<String>,
+        #[clap(short = 'a', long = "Album")]
+        album: Option<String>,
+        #[clap(short = 'g', long = "Genre")]
+        genre: Option<String>,
+    },
 }

@@ -1,6 +1,9 @@
 use std::{fs::File, io::BufReader, path::PathBuf, time::Duration};
 
-use rodio::Source;
+use rodio::{
+    Source,
+    cpal::{self, traits::HostTrait},
+};
 
 pub struct AudioSource {
     title: String,
@@ -27,8 +30,13 @@ impl AudioSource {
         low_pass: Option<u32>,
         high_pass: Option<u32>,
     ) -> Result<AudioPlayer, rodio::PlayError> {
-        let stream_handle =
-            rodio::OutputStreamBuilder::open_default_stream().expect("Could not use audio device");
+        let default_device = cpal::default_host()
+            .default_output_device()
+            .expect("[x] Rodio: Could not find output device");
+        let stream_handle = rodio::OutputStreamBuilder::from_device(default_device)
+            .expect("[x] Rodio: Could not user output device")
+            .open_stream_or_fallback()
+            .expect("Could not use audio device");
         let sink = rodio::Sink::connect_new(stream_handle.mixer());
         let decoder = rodio::Decoder::new(BufReader::new(
             self.file.try_clone().expect("[x] Could not clone file"),

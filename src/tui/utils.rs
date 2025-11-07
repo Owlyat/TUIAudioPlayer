@@ -1,6 +1,5 @@
 use std::{path::PathBuf, time::Duration};
 
-use audiotags::Picture;
 use lofty::{
     file::{AudioFile, TaggedFile, TaggedFileExt},
     probe::Probe,
@@ -56,7 +55,7 @@ pub fn get_tags(path: &PathBuf) -> Tag {
     tag.clone()
 }
 
-fn get_tagged_file(path: &PathBuf) -> TaggedFile {
+pub fn get_tagged_file(path: &PathBuf) -> TaggedFile {
     Probe::open(path)
         .expect("[x] Lofty: Could not open path")
         .read()

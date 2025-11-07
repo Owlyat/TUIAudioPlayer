@@ -2,7 +2,9 @@ mod tui_input;
 mod utils;
 use crate::audio::{AudioPlayer, AudioSource};
 use crate::cli::Cli;
-use lofty::tag::Accessor;
+use lofty::config::WriteOptions;
+use lofty::file::TaggedFileExt;
+use lofty::tag::{Accessor, Tag, TagExt};
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, LineGauge, Paragraph};
 use std::fmt::Debug;
@@ -14,7 +16,7 @@ use utils::{get_sample_rate, verify_path_extension};
 pub struct App {
     args: Option<Cli>,
     audio: Option<AudioSource>,
-    state: Option<AppStatePlay>,
+    state_play: Option<AppStatePlay>,
 }
 
 impl App {
@@ -27,9 +29,77 @@ impl App {
                 high_pass: _,
             } => {
                 app.add_audio(path, cli.get_debug());
-                app.state = Some(AppStatePlay::default());
+                app.state_play = Some(AppStatePlay::default());
             }
-            crate::cli::Command::Player {} => todo!("Add the player"),
+            crate::cli::Command::Player { cwd } => todo!("Add the player"),
+            crate::cli::Command::TagWritter {
+                title,
+                artist,
+                album,
+                genre,
+                path,
+            } => {
+                let audio_p =
+                    utils::verify_path_extension(&path).expect("[x] Invalid file or extension");
+                let mut tagged_file = utils::get_tagged_file(&audio_p);
+                let tag = match tagged_file.primary_tag_mut() {
+                    Some(t) => t,
+                    None => {
+                        if let Some(t) = tagged_file.first_tag_mut() {
+                            t
+                        } else {
+                            let tag_type = tagged_file.primary_tag_type();
+                            cli.get_debug().then(||
+                            eprintln!(
+                                "[!] Lofty: No tags found, creating a new tag of type `{tag_type:?}`"
+                            )
+                            );
+                            tagged_file.insert_tag(Tag::new(tag_type));
+                            tagged_file.primary_tag_mut().unwrap()
+                        }
+                    }
+                };
+                if title.is_none() && artist.is_none() && album.is_none() && genre.is_none() {
+                    let title = inquire::prompt_text("Track Title: ")
+                        .expect("[x] Inquire: Failed to retrieve title");
+                    (!title.is_empty()).then(|| tag.set_title(title));
+                    let artist = inquire::prompt_text("Artist Name: ")
+                        .expect("[x] Inquire: Failed to retrieve Artist Name");
+                    (!artist.is_empty()).then(|| tag.set_artist(artist));
+                    let album = inquire::prompt_text("Album Name: ")
+                        .expect("[x] Inquire: Failed to retrieve Album name");
+                    (!album.is_empty()).then(|| tag.set_album(album));
+                    let genre = inquire::prompt_text("Genre: ")
+                        .expect("[x] Inquire: Failed to retrieve Genre");
+                    (!genre.is_empty()).then(|| tag.set_album(genre));
+                    tag.save_to_path(path, WriteOptions::default())
+                        .expect("[x] Lofty: Failed to write the tag");
+                    std::process::exit(0);
+                }
+                if let Some(title) = title {
+                    tag.set_title(title.clone());
+                    cli.get_debug()
+                        .then(|| println!("[!] Title tag set to {}", title));
+                }
+                if let Some(artist) = artist {
+                    tag.set_artist(artist.clone());
+                    cli.get_debug()
+                        .then(|| println!("[!] Artist tag set to {}", artist));
+                }
+                if let Some(album) = album {
+                    tag.set_album(album.clone());
+                    cli.get_debug()
+                        .then(|| println!("[!] Album tag set to {}", album));
+                }
+                if let Some(genre) = genre {
+                    tag.set_genre(genre.clone());
+                    cli.get_debug()
+                        .then(|| println!("[!] Genre tag set to {}", genre));
+                }
+                tag.save_to_path(path, WriteOptions::default())
+                    .expect("[x] Lofty: Failed to write the tag");
+                std::process::exit(0);
+            }
         }
         app.args = Some(cli);
         app
@@ -46,9 +116,10 @@ impl App {
                 if let Some(mut audio) = self.audio {
                     match audio.play(low_pass, high_pass) {
                         Ok(mut player) => {
-                            self.state
+                            self.state_play
                                 .expect("[x] Could not get app state")
-                                .set_title(audio.get_title())
+                                .set_full_title(audio.get_title())
+                                .set_filename(tag.title().unwrap_or_default())
                                 .set_artist(tag.artist().unwrap_or_default())
                                 .set_album(tag.album().unwrap_or_default())
                                 .set_genre(tag.genre().unwrap_or_default())
@@ -61,7 +132,14 @@ impl App {
                     }
                 }
             }
-            crate::cli::Command::Player {} => todo!("Implement Player"),
+            crate::cli::Command::Player { cwd } => todo!("Implement Player"),
+            crate::cli::Command::TagWritter {
+                path: _,
+                title: _,
+                artist: _,
+                album: _,
+                genre: _,
+            } => {}
         }
     }
     #[doc = "Check if the provided path extension is an audio file and add it to Self"]
@@ -75,7 +153,8 @@ impl App {
 #[derive(Debug, Default, Clone)]
 struct AppStatePlay {
     running: bool,
-    title: String,
+    full_title: String,
+    file_name: String,
     current_duration: Duration,
     total_duration: Duration,
     artist: String,
@@ -113,7 +192,7 @@ impl Widget for AppStatePlay {
             .style(Style::default().fg(Color::Blue))
             .title(format!(
                 "{} - {:02}:{:02}/{:02}:{:02}",
-                self.title,
+                self.full_title,
                 (self.current_duration.as_secs() - (self.current_duration.as_secs() % 60)) / 60,
                 self.current_duration.as_secs() % 60,
                 (self.total_duration.as_secs() - (self.total_duration.as_secs() % 60)) / 60,
@@ -123,7 +202,8 @@ impl Widget for AppStatePlay {
             .render(inner_area, buf);
 
         Paragraph::new(format!(
-            "Artist: {}\nAlbum: {}\nGenre: {}\nSample Rate: {}\nTotal Duration: {:02}:{:02}",
+            "Title: {}\nArtist: {}\nAlbum: {}\nGenre: {}\nSample Rate: {}\nTotal Duration: {:02}:{:02}",
+            self.file_name.is_empty().then(|| "<None>").or(Some(&self.file_name)).unwrap(),
             self.artist
                 .is_empty()
                 .then(|| "<None>")
@@ -152,8 +232,9 @@ impl Widget for AppStatePlay {
         .render(layout[0], buf);
 
         LineGauge::default()
+            .style(Style::default().fg(Color::Yellow))
             .line_set(symbols::line::THICK)
-            .filled_style(Style::default().fg(Color::Blue))
+            .filled_style(Style::default().fg(Color::Yellow))
             .unfilled_style(Style::default().fg(Color::Black))
             .ratio(self.current_duration.as_secs_f64() / self.total_duration.as_secs_f64())
             .render(layout[1], buf);
@@ -186,8 +267,12 @@ impl AppStatePlay {
         self.debug = debug;
         self
     }
-    pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
-        self.title = title.into();
+    pub fn set_full_title(&mut self, title: impl Into<String>) -> &mut Self {
+        self.full_title = title.into();
+        self
+    }
+    pub fn set_filename(&mut self, filename: impl Into<String>) -> &mut Self {
+        self.file_name = filename.into();
         self
     }
     pub fn set_artist(&mut self, artist: impl Into<String>) -> &mut Self {
