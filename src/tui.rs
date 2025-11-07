@@ -2,12 +2,13 @@ mod tui_input;
 mod utils;
 use crate::audio::{AudioPlayer, AudioSource};
 use crate::cli::Cli;
+use lofty::tag::Accessor;
 use ratatui::prelude::*;
-use ratatui::widgets::Block;
+use ratatui::widgets::{Block, BorderType, Borders, LineGauge, Paragraph};
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
-use utils::verify_path_extension;
+use utils::{get_sample_rate, verify_path_extension};
 
 #[derive(Default)]
 pub struct App {
@@ -41,12 +42,17 @@ impl App {
                 low_pass,
                 high_pass,
             } => {
+                let tag = utils::get_tags(&path);
                 if let Some(mut audio) = self.audio {
                     match audio.play(low_pass, high_pass) {
                         Ok(mut player) => {
                             self.state
                                 .expect("[x] Could not get app state")
                                 .set_title(audio.get_title())
+                                .set_artist(tag.artist().unwrap_or_default())
+                                .set_album(tag.album().unwrap_or_default())
+                                .set_genre(tag.genre().unwrap_or_default())
+                                .set_sample_rate(get_sample_rate(&path))
                                 .set_total_duration(utils::get_total_duration(&path))
                                 .set_debug(cli.get_debug())
                                 .run(&mut player);
@@ -72,6 +78,10 @@ struct AppStatePlay {
     title: String,
     current_duration: Duration,
     total_duration: Duration,
+    artist: String,
+    album: String,
+    genre: String,
+    sample_rate: String,
     debug: bool,
 }
 
@@ -84,11 +94,24 @@ impl Widget for AppStatePlay {
         let outer_area = area;
 
         Block::bordered()
-            .title_top("Audio Player")
+            .title_top("[TUI Audio Player]")
+            .title_alignment(Alignment::Center)
+            .title_style(Style::default().fg(Color::Blue))
+            .border_type(BorderType::Rounded)
+            .style(Style::default().fg(Color::White))
             .render(outer_area, buf);
 
+        let layout = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
+            .split(inner_area.inner(Margin {
+                horizontal: 10,
+                vertical: 10,
+            }));
+
         Block::bordered()
-            .title_top(format!(
+            .style(Style::default().fg(Color::Blue))
+            .title(format!(
                 "{} - {:02}:{:02}/{:02}:{:02}",
                 self.title,
                 (self.current_duration.as_secs() - (self.current_duration.as_secs() % 60)) / 60,
@@ -96,7 +119,44 @@ impl Widget for AppStatePlay {
                 (self.total_duration.as_secs() - (self.total_duration.as_secs() % 60)) / 60,
                 self.total_duration.as_secs() % 60,
             ))
+            .title_bottom("[Volume Up ▲ | Volume Down ▼ | Fast Forward ▶ | Rewind ◀ | Slow Down <Shift> + ▼ | Speed Up <Shift> + ▲]")
             .render(inner_area, buf);
+
+        Paragraph::new(format!(
+            "Artist: {}\nAlbum: {}\nGenre: {}\nSample Rate: {}\nTotal Duration: {:02}:{:02}",
+            self.artist
+                .is_empty()
+                .then(|| "<None>")
+                .or(Some(&self.artist))
+                .unwrap(),
+            self.album
+                .is_empty()
+                .then(|| "<None>")
+                .or(Some(&self.album))
+                .unwrap(),
+            self.genre
+                .is_empty()
+                .then(|| "<None>")
+                .or(Some(&self.genre))
+                .unwrap(),
+            self.sample_rate
+                .is_empty()
+                .then(|| "<None>")
+                .or(Some(&self.sample_rate))
+                .unwrap(),
+            (self.total_duration.as_secs() - (self.total_duration.as_secs() % 60)) / 60,
+            self.total_duration.as_secs() % 60,
+        ))
+        .style(Style::default().fg(Color::Yellow))
+        .centered()
+        .render(layout[0], buf);
+
+        LineGauge::default()
+            .line_set(symbols::line::THICK)
+            .filled_style(Style::default().fg(Color::Blue))
+            .unfilled_style(Style::default().fg(Color::Black))
+            .ratio(self.current_duration.as_secs_f64() / self.total_duration.as_secs_f64())
+            .render(layout[1], buf);
     }
 }
 
@@ -109,12 +169,6 @@ impl AppStatePlay {
         while self.running {
             audio_player.is_empty().then(|| self.stop());
             self.current_duration = audio_player.get_current_duration();
-            self.debug.then(|| {
-                println!(
-                    "[?] Current Duration : {}",
-                    self.current_duration.as_secs().to_string()
-                )
-            });
             term.draw(|frame| {
                 self.draw(frame);
             })
@@ -134,6 +188,22 @@ impl AppStatePlay {
     }
     pub fn set_title(&mut self, title: impl Into<String>) -> &mut Self {
         self.title = title.into();
+        self
+    }
+    pub fn set_artist(&mut self, artist: impl Into<String>) -> &mut Self {
+        self.artist = artist.into();
+        self
+    }
+    pub fn set_album(&mut self, album: impl Into<String>) -> &mut Self {
+        self.album = album.into();
+        self
+    }
+    pub fn set_genre(&mut self, genre: impl Into<String>) -> &mut Self {
+        self.genre = genre.into();
+        self
+    }
+    pub fn set_sample_rate(&mut self, sample_rate: impl Into<String>) -> &mut Self {
+        self.sample_rate = sample_rate.into();
         self
     }
     fn draw(&mut self, f: &mut ratatui::Frame) {

@@ -45,7 +45,7 @@ pub fn handle_event(
                     && key_event.modifiers == KeyModifiers::SHIFT)
                     .then(|| audio_player.slower_playback());
             }
-            ratatui::crossterm::event::Event::Mouse(mouse_event) => {}
+            ratatui::crossterm::event::Event::Mouse(_mouse_event) => {}
             ratatui::crossterm::event::Event::Paste(_) => {}
             ratatui::crossterm::event::Event::Resize(_, _) => {}
         }

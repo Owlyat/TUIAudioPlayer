@@ -9,4 +9,5 @@ use tui::App;
 fn main() {
     let args = Cli::parse();
     App::from(args.clone()).run();
+    std::process::exit(0);
 }

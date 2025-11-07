@@ -1,5 +1,6 @@
 use std::{path::PathBuf, time::Duration};
 
+use audiotags::Picture;
 use lofty::{
     file::{AudioFile, TaggedFile, TaggedFileExt},
     probe::Probe,
@@ -22,11 +23,35 @@ pub fn get_total_duration(path: &PathBuf) -> Duration {
     tagged_file.properties().duration()
 }
 
-pub fn get_tags(path: &PathBuf) -> Tag {
+pub fn get_sample_rate(path: &PathBuf) -> String {
     let tagged_file = get_tagged_file(path);
+    format!(
+        "{}{}",
+        tagged_file.properties().sample_rate().unwrap_or_default(),
+        tagged_file
+            .properties()
+            .sample_rate()
+            .is_some()
+            .then(|| "k")
+            .unwrap()
+    )
+}
+
+pub fn get_tags(path: &PathBuf) -> Tag {
+    let mut tagged_file = get_tagged_file(path);
     let tag = match tagged_file.primary_tag() {
         Some(t) => t,
-        None => tagged_file.first_tag().expect("[x] Lofty: No tags found!"),
+        None => {
+            if let Some(tag) = tagged_file.first_tag() {
+                tag
+            } else {
+                let tag_type = tagged_file.primary_tag_type();
+                tagged_file.insert_tag(Tag::new(tag_type));
+                tagged_file
+                    .primary_tag_mut()
+                    .expect("[x] Lofty: Error while applying new tag on media")
+            }
+        }
     };
     tag.clone()
 }
