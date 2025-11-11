@@ -2,11 +2,10 @@ mod tui_input;
 mod utils;
 use crate::audio::{AudioPlayer, AudioSource};
 use crate::cli::Cli;
-use lofty::config::WriteOptions;
-use lofty::file::TaggedFileExt;
-use lofty::tag::{Accessor, Tag, TagExt};
+use lofty::tag::Accessor;
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, BorderType, Borders, LineGauge, Paragraph};
+use ratatui::widgets::{Block, BorderType, LineGauge, Paragraph};
+use ratatui_explorer::Theme;
 use std::fmt::Debug;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -17,6 +16,7 @@ pub struct App {
     args: Option<Cli>,
     audio: Option<AudioSource>,
     state_play: Option<AppStatePlay>,
+    state_player: Option<AppStatePlayer>,
 }
 
 impl App {
@@ -31,7 +31,9 @@ impl App {
                 app.add_audio(path, cli.get_debug());
                 app.state_play = Some(AppStatePlay::default());
             }
-            crate::cli::Command::Player { cwd } => todo!("Add the player"),
+            crate::cli::Command::Player { cwd } => {
+                app.state_player = Some(AppStatePlayer::from(cwd, cli.get_debug()));
+            }
             crate::cli::Command::TagWritter {
                 title,
                 artist,
@@ -39,66 +41,7 @@ impl App {
                 genre,
                 path,
             } => {
-                let audio_p =
-                    utils::verify_path_extension(&path).expect("[x] Invalid file or extension");
-                let mut tagged_file = utils::get_tagged_file(&audio_p);
-                let tag = match tagged_file.primary_tag_mut() {
-                    Some(t) => t,
-                    None => {
-                        if let Some(t) = tagged_file.first_tag_mut() {
-                            t
-                        } else {
-                            let tag_type = tagged_file.primary_tag_type();
-                            cli.get_debug().then(||
-                            eprintln!(
-                                "[!] Lofty: No tags found, creating a new tag of type `{tag_type:?}`"
-                            )
-                            );
-                            tagged_file.insert_tag(Tag::new(tag_type));
-                            tagged_file.primary_tag_mut().unwrap()
-                        }
-                    }
-                };
-                if title.is_none() && artist.is_none() && album.is_none() && genre.is_none() {
-                    let title = inquire::prompt_text("Track Title: ")
-                        .expect("[x] Inquire: Failed to retrieve title");
-                    (!title.is_empty()).then(|| tag.set_title(title));
-                    let artist = inquire::prompt_text("Artist Name: ")
-                        .expect("[x] Inquire: Failed to retrieve Artist Name");
-                    (!artist.is_empty()).then(|| tag.set_artist(artist));
-                    let album = inquire::prompt_text("Album Name: ")
-                        .expect("[x] Inquire: Failed to retrieve Album name");
-                    (!album.is_empty()).then(|| tag.set_album(album));
-                    let genre = inquire::prompt_text("Genre: ")
-                        .expect("[x] Inquire: Failed to retrieve Genre");
-                    (!genre.is_empty()).then(|| tag.set_album(genre));
-                    tag.save_to_path(path, WriteOptions::default())
-                        .expect("[x] Lofty: Failed to write the tag");
-                    std::process::exit(0);
-                }
-                if let Some(title) = title {
-                    tag.set_title(title.clone());
-                    cli.get_debug()
-                        .then(|| println!("[!] Title tag set to {}", title));
-                }
-                if let Some(artist) = artist {
-                    tag.set_artist(artist.clone());
-                    cli.get_debug()
-                        .then(|| println!("[!] Artist tag set to {}", artist));
-                }
-                if let Some(album) = album {
-                    tag.set_album(album.clone());
-                    cli.get_debug()
-                        .then(|| println!("[!] Album tag set to {}", album));
-                }
-                if let Some(genre) = genre {
-                    tag.set_genre(genre.clone());
-                    cli.get_debug()
-                        .then(|| println!("[!] Genre tag set to {}", genre));
-                }
-                tag.save_to_path(path, WriteOptions::default())
-                    .expect("[x] Lofty: Failed to write the tag");
-                std::process::exit(0);
+                utils::tag_writter(&cli, title, artist, album, genre, path);
             }
         }
         app.args = Some(cli);
@@ -114,10 +57,11 @@ impl App {
             } => {
                 let tag = utils::get_tags(&path);
                 if let Some(mut audio) = self.audio {
-                    match audio.play(low_pass, high_pass) {
+                    match audio.play(low_pass, high_pass, cli.get_debug()) {
                         Ok(mut player) => {
                             self.state_play
                                 .expect("[x] Could not get app state")
+                                .set_color(Color::White)
                                 .set_full_title(audio.get_title())
                                 .set_filename(tag.title().unwrap_or_default())
                                 .set_artist(tag.artist().unwrap_or_default())
@@ -132,7 +76,11 @@ impl App {
                     }
                 }
             }
-            crate::cli::Command::Player { cwd } => todo!("Implement Player"),
+            crate::cli::Command::Player { cwd: _ } => {
+                self.state_player
+                    .expect("[x] App: Expected state_player")
+                    .run(cli.get_debug());
+            }
             crate::cli::Command::TagWritter {
                 path: _,
                 title: _,
@@ -162,6 +110,7 @@ struct AppStatePlay {
     genre: String,
     sample_rate: String,
     debug: bool,
+    color: Color,
 }
 
 impl Widget for AppStatePlay {
@@ -177,15 +126,15 @@ impl Widget for AppStatePlay {
             .title_alignment(Alignment::Center)
             .title_style(Style::default().fg(Color::Blue))
             .border_type(BorderType::Rounded)
-            .style(Style::default().fg(Color::White))
+            .style(Style::default().fg(self.color))
             .render(outer_area, buf);
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(80), Constraint::Percentage(20)])
             .split(inner_area.inner(Margin {
-                horizontal: 10,
-                vertical: 10,
+                horizontal: 5,
+                vertical: 5,
             }));
 
         Block::bordered()
@@ -236,7 +185,10 @@ impl Widget for AppStatePlay {
             .line_set(symbols::line::THICK)
             .filled_style(Style::default().fg(Color::Yellow))
             .unfilled_style(Style::default().fg(Color::Black))
-            .ratio(self.current_duration.as_secs_f64() / self.total_duration.as_secs_f64())
+            .ratio(
+                (self.current_duration.as_secs_f64() / self.total_duration.as_secs_f64())
+                    .clamp(0., 1.),
+            )
             .render(layout[1], buf);
     }
 }
@@ -255,13 +207,17 @@ impl AppStatePlay {
             })
             .is_err()
             .then(|| self.stop());
-            tui_input::handle_event(audio_player, &mut self.running)
+            tui_input::handle_play_event(audio_player, &mut self.running)
                 .is_err()
                 .then(|| self.stop());
         }
         self.debug.then(|| println!("[?]Restoring terminal"));
         ratatui::restore();
         self.debug.then(|| println!("[?]Exiting main loop"));
+    }
+    pub fn set_color(&mut self, c: Color) -> &mut Self {
+        self.color = c;
+        self
     }
     pub fn set_debug(&mut self, debug: bool) -> &mut Self {
         self.debug = debug;
@@ -300,5 +256,148 @@ impl AppStatePlay {
     pub fn set_total_duration(&mut self, d: Duration) -> &mut Self {
         self.total_duration = d;
         self
+    }
+}
+
+struct AppStatePlayer {
+    running: bool,
+    #[allow(dead_code)]
+    cwd: PathBuf,
+    file_explorer: ratatui_explorer::FileExplorer,
+    which: PlayerSelection,
+    audio: Option<AudioSource>,
+    player: Option<AudioPlayer>,
+    audio_tui: AppStatePlay,
+}
+
+#[derive(Default)]
+pub enum PlayerSelection {
+    #[default]
+    FileExplorer,
+    AudioPlayer,
+}
+
+impl PlayerSelection {
+    pub fn toggle(&mut self) -> &mut Self {
+        match self {
+            PlayerSelection::FileExplorer => *self = PlayerSelection::AudioPlayer,
+            PlayerSelection::AudioPlayer => *self = PlayerSelection::FileExplorer,
+        }
+        self
+    }
+}
+
+impl Default for AppStatePlayer {
+    fn default() -> Self {
+        Self {
+            which: PlayerSelection::default(),
+            running: false,
+            cwd: PathBuf::new(),
+            file_explorer: ratatui_explorer::FileExplorer::new()
+                .expect("[x] Ratatui_explorer: Could not create new explorer"),
+            player: None,
+            audio: None,
+            audio_tui: AppStatePlay::default(),
+        }
+    }
+}
+
+impl AppStatePlayer {
+    pub fn from(cwd: Option<PathBuf>, debug: bool) -> Self {
+        let mut default = Self::default();
+        if let Some(cwd) = cwd {
+            default.file_explorer.set_cwd(cwd.clone()).is_ok().then(|| {
+                debug.then(|| println!("[?] CWD set to {}", cwd.to_string_lossy()));
+            });
+            default
+        } else {
+            default
+        }
+    }
+    pub fn run(&mut self, debug: bool) {
+        let mut term = ratatui::init();
+        self.running = true;
+        while self.running {
+            self.file_explorer
+                .set_theme(
+                    Theme::default()
+                        .add_default_title()
+                        .with_style(Style::default().fg(match self.which {
+                            PlayerSelection::FileExplorer => Color::Yellow,
+                            PlayerSelection::AudioPlayer => Color::White,
+                        })),
+                );
+            self.audio_tui.set_color(match self.which {
+                PlayerSelection::FileExplorer => Color::White,
+                PlayerSelection::AudioPlayer => Color::Yellow,
+            });
+            if let Some(player) = &self.player {
+                self.audio_tui.current_duration = player.get_current_duration();
+                if player.is_empty() {
+                    self.audio = None;
+                    self.audio_tui = AppStatePlay::default();
+                    self.which.toggle();
+                }
+            }
+            if self.audio.is_none() {
+                self.player = None;
+            }
+            term.draw(|frame| {
+                self.draw(frame);
+            })
+            .is_err()
+            .then(|| {
+                self.stop();
+            });
+            tui_input::handle_player_event(
+                &mut self.running,
+                &mut self.file_explorer,
+                &mut self.which,
+                &mut self.audio,
+                &mut self.player,
+                &mut self.audio_tui,
+                debug,
+            )
+            .is_err()
+            .then(|| self.stop());
+        }
+        ratatui::restore();
+    }
+    fn draw(&mut self, f: &mut Frame) {
+        let inner_area = f.area().inner(Margin {
+            horizontal: 1,
+            vertical: 1,
+        });
+        let outer_area = f.area();
+
+        Block::bordered()
+            .title_top("[TUI Player]")
+            .title_alignment(Alignment::Center)
+            .title_style(Style::default().fg(Color::Blue))
+            .border_type(BorderType::Rounded)
+            .style(Style::default().fg(Color::White))
+            .render(outer_area, f.buffer_mut());
+
+        if self.audio.is_some() {
+            let layout = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(inner_area.inner(Margin {
+                    horizontal: 1,
+                    vertical: 1,
+                }));
+
+            self.file_explorer
+                .widget()
+                .render(layout[0], f.buffer_mut());
+            self.audio_tui.clone().render(layout[1], f.buffer_mut());
+        } else {
+            self.file_explorer
+                .widget()
+                .render(inner_area, f.buffer_mut());
+        }
+    }
+    fn stop(&mut self) {
+        self.running = false;
     }
 }

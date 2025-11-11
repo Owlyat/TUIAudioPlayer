@@ -33,7 +33,8 @@ pub enum Command {
         high_pass: Option<u32>,
     },
     Player {
-        cwd: std::path::PathBuf,
+        #[clap(short = 'c', long = "CurrentWorkingDirectory")]
+        cwd: Option<std::path::PathBuf>,
     },
     TagWritter {
         path: std::path::PathBuf,

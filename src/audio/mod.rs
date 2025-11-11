@@ -8,7 +8,6 @@ use rodio::{
 pub struct AudioSource {
     title: String,
     file: File,
-    player: Option<AudioPlayer>,
 }
 
 impl AudioSource {
@@ -22,18 +21,18 @@ impl AudioSource {
                 "[x] Error while opening file {}",
                 path.to_string_lossy()
             )),
-            player: None,
         }
     }
     pub fn play(
         &mut self,
         low_pass: Option<u32>,
         high_pass: Option<u32>,
+        debug: bool,
     ) -> Result<AudioPlayer, rodio::PlayError> {
         let default_device = cpal::default_host()
             .default_output_device()
             .expect("[x] Rodio: Could not find output device");
-        let stream_handle = rodio::OutputStreamBuilder::from_device(default_device)
+        let mut stream_handle = rodio::OutputStreamBuilder::from_device(default_device)
             .expect("[x] Rodio: Could not user output device")
             .open_stream_or_fallback()
             .expect("Could not use audio device");
@@ -56,6 +55,7 @@ impl AudioSource {
 
             sink.append(decoder);
         }
+        stream_handle.log_on_drop(debug);
         Ok(AudioPlayer::from(stream_handle, sink))
     }
     pub fn get_title(&self) -> &str {
@@ -64,6 +64,7 @@ impl AudioSource {
 }
 
 pub struct AudioPlayer {
+    #[allow(dead_code)]
     handle: rodio::OutputStream,
     sink: rodio::Sink,
 }
